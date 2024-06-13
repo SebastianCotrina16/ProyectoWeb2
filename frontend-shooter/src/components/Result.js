@@ -8,7 +8,7 @@ function Results() {
   const user = location.state?.user;
 
   useEffect(() => {
-    axios.post('http://localhost:3000/evaluate')
+    axios.post('http://localhost:5003/results', { idUsuario: 1 })
       .then(response => {
         setScore(response.data.score);
       })
