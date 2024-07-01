@@ -6,13 +6,29 @@ import torch
 import torchvision.transforms as T
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+import pyodbc
+from datetime import datetime
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024     
+
+conn_str = (
+    'DRIVER={ODBC Driver 17 for SQL Server};'
+    'SERVER=svrweb2frevb.database.windows.net;'
+    'DATABASE=sistemabalas;'
+    'UID=farviveros;'
+    'PWD=Emmanuel$123;'
+    'Encrypt=yes;'
+    'TrustServerCertificate=no;'
+    'Connection Timeout=30;'
+)
+
+def get_db_connection():
+    return pyodbc.connect(conn_str)
 
 def get_model(num_classes):
-    model = fasterrcnn_resnet50_fpn(pretrained=True)
+    model = fasterrcnn_resnet50_fpn(weights='FasterRCNN_ResNet50_FPN_Weights.COCO_V1')
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     return model
@@ -29,6 +45,7 @@ transform = T.Compose([
 @app.route('/detect', methods=['POST'])
 def detect():
     file = request.files.get('imageName')
+    id_usuario = request.form.get('idUsuario')
 
     if not file:
         return jsonify({'status': 'error', 'message': 'El campo de imagen es obligatorio'}), 400
@@ -51,12 +68,34 @@ def detect():
     scores = scores[scores > threshold]
 
     disparos = []
+    total_precision = 0
     for box, score in zip(boxes, scores):
         x1, y1, x2, y2 = box
+        ubicacion = f'({(x1 + x2) / 2}, {(y1 + y2) / 2})'
+        precision = float(score)
+        total_precision += precision
         disparos.append({
-            'ubicacion': f'({(x1 + x2) / 2}, {(y1 + y2) / 2})',
-            'precision': float(score)
+            'ubicacion': ubicacion,
+            'precision': precision
         })
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO ImpactosBala (IdUsuario, Fecha, Ubicacion, Precision, RutaImagen) VALUES (?, ?, ?, ?, ?)",
+                id_usuario, datetime.now(), ubicacion, precision, filepath
+            )
+            conn.commit()
+
+    promedio_precision = total_precision / len(disparos) if disparos else 0
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO Reportes (IdUsuario, FechaReporte, TotalImpactos, PromedioPrecision, Detalles) VALUES (?, ?, ?, ?, ?)",
+            id_usuario, datetime.now(), len(disparos), promedio_precision, 'Detalles del reporte de impacto de balas.'
+        )
+        conn.commit()
 
     return jsonify({'disparos': disparos})
 
