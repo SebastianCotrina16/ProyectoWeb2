@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 function Dashboard() {
   const [shots, setShots] = useState(0);
@@ -48,6 +48,7 @@ function Dashboard() {
       })
       .catch(error => {
         console.error('Error processing image:', error);
+        navigate('/results', { state: { user } });
       });
   };
 
@@ -70,3 +71,5 @@ function Dashboard() {
 }
 
 export default Dashboard;
+
+
