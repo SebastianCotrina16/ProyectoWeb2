@@ -1,3 +1,6 @@
+"""
+Creates a SQLite database with a table to store the users' information.
+"""
 import sqlite3
 
 conn = sqlite3.connect('users.db')
