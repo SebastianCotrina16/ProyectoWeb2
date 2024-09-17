@@ -1,28 +1,31 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
-function StartExam() {
-  const navigate = useNavigate();
-
-  const handleStart = () => {
-    navigate('/facial-recognition');
-  };
+function Results() {
+  const location = useLocation();
+  const user = location.state?.user;
+  const results = location.state?.results;
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen w-full">
-      <div className="text-center p-12 bg-gray-800 bg-opacity-80 rounded-lg shadow-2xl">
-        <h1 className="text-4xl font-bold text-white mb-6">Bienvenido a la Evaluacion de Disparo</h1>
-        <p className="text-gray-300 mb-8">Preparate para rendir tu examen, dispondras de un tiempo para rendir la evaluacion.</p>
-        <button
-          onClick={handleStart}
-          className="px-8 py-4 bg-blue-500 text-white text-lg font-bold rounded-full hover:bg-blue-600 transition-colors"
-        >
-          Iniciar Examen
-        </button>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
+      <div className="text-center">
+        <h1 className="text-3xl font-bold mb-2">Resultados del examen de {user}</h1>
+        {results ? (
+          <div>
+            <p className="text-xl">Precisión final: <span className="font-bold text-green-400">{results.final_accuracy}%</span></p>
+            <h3 className="mt-4 text-lg">Detalles de los disparos:</h3>
+            <ul className="mt-2">
+              {results.disparos.map((shot, index) => (
+                <li key={index}>Impacto en {shot.ubicacion}: Precisión {shot.precision}%</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p>No se han encontrado resultados. Intenta nuevamente.</p>
+        )}
       </div>
     </div>
   );
 }
 
-export default StartExam;
-
+export default Results;
