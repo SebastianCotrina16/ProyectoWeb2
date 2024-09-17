@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import axios from 'axios';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
-import axios from 'axios';
 
 function FacialRecognition() {
   const webcamRef = useRef(null);
@@ -9,21 +9,21 @@ function FacialRecognition() {
   const [dni, setDni] = useState('');
   const [name, setName] = useState('');
   const [askForDni, setAskForDni] = useState(false);
-  const [capturedImage, setCapturedImage] = useState(null); // Nuevo estado para almacenar la imagen capturada
+  const [capturedImage, setCapturedImage] = useState(null);
 
   const capture = async () => {
     const imageSrc = webcamRef.current?.getScreenshot();
     if (imageSrc) {
-      setCapturedImage(imageSrc); // Almacena la imagen capturada en el estado
+      setCapturedImage(imageSrc);
       const blob = await fetch(imageSrc).then(res => res.blob());
       try {
         const formData = new FormData();
         formData.append('image', blob);
 
-        const response = await axios.post('http://localhost:5001/recognize', formData, {
+        const response = await axios.post('https://facialrecognitionsistemabalas.azurewebsites.net/recognize', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-
+        console.log('Response:', response.data.user);
         if (response.data.user) {
           navigate('/dashboard', { state: { user: response.data.user.name } });
         } else {
@@ -40,7 +40,7 @@ function FacialRecognition() {
 
   const handleDniSubmit = async (event) => {
     event.preventDefault();
-    if (capturedImage) { // Usa la imagen capturada almacenada en el estado
+    if (capturedImage) {
       const blob = await fetch(capturedImage).then(res => res.blob());
       const formData = new FormData();
       formData.append('image', blob);
@@ -48,10 +48,14 @@ function FacialRecognition() {
       formData.append('name', name);
 
       try {
-        await axios.post('http://localhost:5001/register', formData, {
+        await axios.post('https://facialrecognitionsistemabalas.azurewebsites.net/register', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        navigate('/dashboard', { state: { user: name } });
+        setAskForDni(false);
+        setDni('');
+        setName('');
+        setCapturedImage(null);
+        capture(); // Reinicia el proceso de captura
       } catch (error) {
         console.error('Error:', error);
       }
