@@ -2,9 +2,7 @@
 A Flask application for detecting objects in images using a pre-trained Faster R-CNN model.
 Handles file uploads, performs object detection, and records results in a SQL database.
 """
-
 import os
-from datetime import datetime
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from PIL import Image
@@ -12,117 +10,94 @@ import torch
 import torchvision.transforms as T
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-import pyodbc
+import numpy as np
+from itertools import combinations
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-CONNECTION_STRING= (
-    'DRIVER={ODBC Driver 17 for SQL Server};'
-    'SERVER=svrweb2frevb.database.windows.net;'
-    'DATABASE=sistemabalas;'
-    'UID=farviveros;'
-    'PWD=Emmanuel$123;'
-    'Encrypt=yes;'
-    'TrustServerCertificate=no;'
-    'Connection Timeout=30;'
-)
+center_target = (680, 1140)
+head_center = (680, 300)
+heart_center = (680, 700)
+img_height = 1920
+img_width = 1335
 
-def get_db_connection():
-    """
-    Establishes and returns a connection to the database.
-    """
-    return pyodbc.connect(CONNECTION_STRING) # pylint: disable=E1101
+def is_lethal_impact(impact, head_center, heart_center, head_lethal_radius=250, heat_lethal_radius=50):
+    is_head_impact = np.linalg.norm(
+        np.array(impact) - np.array(head_center)) <= head_lethal_radius
+    is_heart_impact = np.linalg.norm(
+        np.array(impact) - np.array(heart_center)) <= heat_lethal_radius
+    return is_head_impact or is_heart_impact
+
+
+def calculate_individual_accuracy(impact, center_target, head_center, heart_center):
+    if is_lethal_impact(impact, head_center, heart_center):
+        return 0.0
+
+    distance_from_center = np.linalg.norm(
+        np.array(impact) - np.array(center_target))
+    max_distance = np.linalg.norm(
+        np.array(center_target) - np.array([0, img_height])) / 1.5
+    accuracy = 1 - (distance_from_center / max_distance) ** 2
+    return round(accuracy * 100, 2)
+
+
+def calculate_dispersion(bullet_positions):
+    if len(bullet_positions) > 1:
+        pairwise_distances = [np.linalg.norm(
+            np.array(a) - np.array(b)) for a, b in combinations(bullet_positions, 2)]
+        avg_distance_between_bullets = np.mean(pairwise_distances)
+        max_bullet_dispersion = np.linalg.norm(
+            np.array([0, 0]) - np.array([img_width, img_height]))
+        dispersion_factor = 1 - \
+            (avg_distance_between_bullets / max_bullet_dispersion)
+    else:
+        dispersion_factor = 1
+    return round(dispersion_factor * 100, 2)
+
+
+def calculate_final_accuracy(bullet_positions, center_target, head_center, heart_center):
+    individual_accuracies = [calculate_individual_accuracy(
+        bullet, center_target, head_center, heart_center) for bullet in bullet_positions]
+    average_individual_accuracy = sum(
+        individual_accuracies) / len(individual_accuracies)
+    dispersion_factor = calculate_dispersion(bullet_positions)
+    final_accuracy = average_individual_accuracy * 0.8 + dispersion_factor * 0.2
+    return round(final_accuracy, 2)
+
 
 def get_model(num_classes):
-    """
-    Loads and prepares the Faster R-CNN model for object detection.
-    Args:
-        num_classes (int): The number of classes the model should recognize.
-    Returns:
-        torch.nn.Module: The prepared Faster R-CNN model.
-    """
-    model_loaded = fasterrcnn_resnet50_fpn(weights='FasterRCNN_ResNet50_FPN_Weights.COCO_V1')
-    in_features = model_loaded.roi_heads.box_predictor.cls_score.in_features
-    model_loaded.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-    return model_loaded
+    model = fasterrcnn_resnet50_fpn(
+        weights='FasterRCNN_ResNet50_FPN_Weights.COCO_V1')
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+    return model
 
-NUM_CLASSES = 2
-model = get_model(NUM_CLASSES)
+
+num_classes = 2
+model = get_model(num_classes)
 model.load_state_dict(torch.load(
-    'model/bullet_detection_model.pth',
-    map_location=torch.device('cpu')
-    ))
+    'model/bullet_detection_model.pth', map_location=torch.device('cpu')))
 model.eval()
 
-transform = T.Compose([
-    T.ToTensor()
-])
+transform = T.Compose([T.ToTensor()])
 
-def process_image(file):
-    """Process the uploaded image and return the image tensor."""
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
-    image = Image.open(filepath).resize((800, 1000))
-    return transform(image).unsqueeze(0), filepath
-
-def insert_impact_data(id_usuario, filepath, boxes, scores):
-    """Insert impact data into the database."""
-    total_precision = 0
-    disparos = []
-    for box, score in zip(boxes, scores):
-        x1, y1, x2, y2 = box
-        ubicacion = f'({(x1 + x2) / 2}, {(y1 + y2) / 2})'
-        precision = float(score)
-        total_precision += precision
-        disparos.append({
-            'ubicacion': ubicacion,
-            'precision': precision
-        })
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO ImpactosBala (IdUsuario, Fecha, Ubicacion, Precision, RutaImagen) "
-                "VALUES (?, ?, ?, ?, ?)",
-                id_usuario, datetime.now(), ubicacion, precision, filepath
-            )
-            conn.commit()
-    return disparos, total_precision
-
-def insert_report_data(id_usuario, total_impactos, promedio_precision):
-    """Insert report data into the database."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO Reportes(IdUsuario,FechaReporte,TotalImpactos,PromedioPrecision,Detalles) "
-            "VALUES (?, ?, ?, ?, ?)",
-            id_usuario,
-            datetime.now(),
-            total_impactos,
-            promedio_precision,
-            'Detalles del reporte de impacto de balas.'
-        )
-        conn.commit()
 
 @app.route('/detect', methods=['POST'])
 def detect():
-    """
-        Endpoint para detectar objetos en una imagen enviada.
-
-        Recibe una imagen y un identificador de usuario a través de una solicitud POST. 
-        Guarda la imagen, realiza la detección con un modelo Faster R-CNN, 
-        y almacena los resultados en la base de datos SQL. 
-        Retorna un JSON con las ubicaciones y precisiones de los impactos detectados.
-    """
-    file = request.files.get('imageName')
-    id_usuario = request.form.get('idUsuario')
-
+    file = request.files.get('image')
     if not file:
         return jsonify({'status': 'error', 'message': 'El campo de imagen es obligatorio'}), 400
 
-    image_tensor, filepath = process_image(file)
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+
+    image = Image.open(filepath).resize((img_width, img_height))
+    image_tensor = transform(image).unsqueeze(0)
 
     with torch.no_grad():
         predictions = model(image_tensor)
@@ -134,14 +109,33 @@ def detect():
     boxes = prediction_data[scores > threshold]
     scores = scores[scores > threshold]
 
-    disparos, total_precision = insert_impact_data(id_usuario, filepath, boxes, scores)
-    promedio_precision = total_precision / len(disparos) if disparos else 0
-    insert_report_data(id_usuario, len(disparos), promedio_precision)
+    bullet_positions = []
+    disparos = []
+    for box, score in zip(boxes, scores):
+        x1, y1, x2, y2 = box
+        x = (x1 + x2) / 2
+        y = (y1 + y2) / 2
+        bullet_positions.append((x, y))
 
-    return jsonify({'disparos': disparos})
+        individual_accuracy = calculate_individual_accuracy(
+            (x, y), center_target, head_center, heart_center)
+
+        disparos.append({
+            'ubicacion': f'({x}, {y})',
+            'precision': individual_accuracy
+        })
+
+    final_accuracy = calculate_final_accuracy(
+        bullet_positions, center_target, head_center, heart_center)
+
+    return jsonify({
+        'disparos': disparos,
+        'final_accuracy': final_accuracy
+    })
 
 
 if __name__ == '__main__':
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     app.run(debug=True, host='0.0.0.0', port=5008)
+
 
