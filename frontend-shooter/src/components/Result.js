@@ -1,27 +1,28 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useLocation } from 'react-router-dom';
-import axios from 'axios';
 
 function Results() {
-  const [score, setScore] = useState(0);
   const location = useLocation();
   const user = location.state?.user;
-
-  useEffect(() => {
-    axios.post('http://localhost:5003/results', { idUsuario: 1 })
-      .then(response => {
-        setScore(response.data.score);
-      })
-      .catch(error => {
-        console.error('Failed to fetch results:', error);
-      });
-  }, []);
+  const results = location.state?.results;
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
       <div className="text-center">
-        <h1 className="text-3xl font-bold mb-2">Exam Results</h1>
-        <p className="text-xl">{user}, your score is: <span className="font-bold text-green-400">{score}</span></p>
+        <h1 className="text-3xl font-bold mb-2">Resultados del examen de {user}</h1>
+        {results ? (
+          <div>
+            <p className="text-xl">Precisión final: <span className="font-bold text-green-400">{results.final_accuracy}%</span></p>
+            <h3 className="mt-4 text-lg">Detalles de los disparos:</h3>
+            <ul className="mt-2">
+              {results.disparos.map((shot, index) => (
+                <li key={index}>Impacto en {shot.ubicacion}: Precisión {shot.precision}%</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p>No se han encontrado resultados. Intenta nuevamente.</p>
+        )}
       </div>
     </div>
   );
