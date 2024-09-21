@@ -1,11 +1,7 @@
-"""
-A Flask application for detecting objects in images using a pre-trained Faster R-CNN model.
-Handles file uploads, performs object detection, and records results in a SQL database.
-"""
 import os
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
-from PIL import Image
+from PIL import Image,UnidentifiedImageError
 import torch
 import torchvision.transforms as T
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
@@ -96,7 +92,11 @@ def detect():
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
-    image = Image.open(filepath).resize((img_width, img_height))
+    try:
+        image = Image.open(filepath).resize((img_width, img_height))
+    except UnidentifiedImageError:
+        return jsonify({'status': 'error', 'message': 'El archivo no es una imagen válida'}), 400
+
     image_tensor = transform(image).unsqueeze(0)
 
     with torch.no_grad():
@@ -124,7 +124,9 @@ def detect():
             'ubicacion': f'({x}, {y})',
             'precision': individual_accuracy
         })
-
+    if len(bullet_positions) == 0:
+        return jsonify({'status': 'error', 'message': 'No se detectaron balas'}), 400
+ 
     final_accuracy = calculate_final_accuracy(
         bullet_positions, center_target, head_center, heart_center)
 
