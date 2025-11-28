@@ -9,8 +9,9 @@ silueta_path = 'plantilla.png'
 silueta = cv2.imread(silueta_path)
 img_height, img_width, _ = silueta.shape
 
-num_train_images = 8000
-num_val_images = 2000
+num_train_images = 6400
+num_val_images = 1200
+manual_test_images = 400
 train_output_dir = 'dataset/images/'
 val_output_dir = 'dataset/validation/images/'
 
